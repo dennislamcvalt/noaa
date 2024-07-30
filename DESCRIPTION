@@ -1,0 +1,13 @@
+Package: noaa
+Type: Package
+Title: MSDRCapstone Package
+Version: 0.1.0
+Author: Dennis
+Maintainer: The package maintainer <dennis@anon.>
+Description: Build an R package that will contain features and will satisfy a number of requirements that will be laid out in the subsequent Modules.
+License: Freeware
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.3.1
+Suggests: knitr, rmarkdown
+

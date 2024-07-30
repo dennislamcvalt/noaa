@@ -1,0 +1,378 @@
+---
+title: "MSDR Capstone R Notebook"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(leaflet)
+library(htmltools)
+library(roxygen2)
+```
+
+```{r}
+# Load the dataset
+noaa_data <- read.csv("noaa.csv")
+```
+
+
+```{r}
+# Check data types and missing values
+str(noaa_data)
+summary(noaa_data)
+colnames(noaa_data)
+```
+
+
+```{r}
+#' Clean NOAA Earthquake Data
+#'
+#' This function takes raw NOAA earthquake data and returns a cleaned data frame.
+#' The clean data frame includes a date column created by combining the year, month,
+#' and day columns, and converting them to the Date class. Additionally, it converts
+#' LATITUDE and LONGITUDE columns to numeric class, and cleans up the LOCATION_NAME.
+#'
+#' @param data A data frame containing raw NOAA earthquake data with columns: `time`, 
+#' `latitude`, `longitude`, `deaths`, and `locationsource`.
+#' 
+#' @return A cleaned data frame with the following columns:
+#' \describe{
+#'   \item{DATE}{Date class, created by uniting the year, month, and day columns.}
+#'   \item{LATITUDE}{Numeric class, converted from character.}
+#'   \item{LONGITUDE}{Numeric class, converted from character.}
+#'   \item{deaths}{Integer class, converted from character.}
+#'   \item{LOCATION_NAME}{Cleaned location names using `eq_location_clean` function.}
+#' }
+#' 
+#' @examples
+#' \dontrun{
+#' raw_data <- read.csv("path/to/noaa_data.csv")
+#' clean_data <- eq_clean_data(raw_data)
+#' head(clean_data)
+#' }
+#' @export
+
+# Define eq_clean_data function
+eq_clean_data <- function(data) {
+  data <- data %>%
+    # Convert the time column to Date class by extracting the date part
+    mutate(DATE = as.Date(time, format = "%Y-%m-%d"),
+           LATITUDE = as.numeric(latitude),
+           LONGITUDE = as.numeric(longitude),
+           deaths = as.integer(deaths),  # Convert deaths to integer
+           LOCATION_NAME = eq_location_clean(locationsource)) %>%
+    # Optionally drop the original columns if they are no longer needed
+    select(-time, -locationsource, -latitude, -longitude)
+  
+  return(data)
+}
+```
+
+
+```{r}
+#' Clean Earthquake Location Names
+#'
+#' This function cleans the LOCATION_NAME column by stripping out the country name 
+#' (including the colon) and converts names to title case (as opposed to all caps). 
+#' This is useful for annotating visualizations with clean location names.
+#'
+#' @param location_name A character vector containing location names in the format 
+#' "Country: Location".
+#' 
+#' @return A character vector with the country names removed and the location names 
+#' converted to title case.
+#' 
+#' @examples
+#' \dontrun{
+#' raw_locations <- c("USA: Los Angeles", "JAPAN: Tokyo", "ITALY: Rome")
+#' clean_locations <- eq_location_clean(raw_locations)
+#' print(clean_locations)
+#' }
+#' @export
+
+# Define eq_location_clean function
+eq_location_clean <- function(location_name) {
+  cleaned_name <- location_name %>%
+    sub("^[^:]+:\\s*", "", .) %>%
+    tolower() %>%
+    tools::toTitleCase()
+  
+  return(cleaned_name)
+}
+```
+
+```{r}
+# Apply data cleaning
+cleaned_data <- eq_clean_data(noaa_data)
+```
+
+
+```{r}
+# Check the cleaned data
+str(cleaned_data)
+```
+
+```{r}
+#' Custom Geom for Earthquake Timeline
+#'
+#' This function creates a custom geom for ggplot2 called `geom_timeline` to plot a timeline of 
+#' earthquakes ranging from xmin to xmax dates with a point for each earthquake. Optional aesthetics 
+#' include color, size, and alpha (for transparency). The `x` aesthetic is a date and an optional 
+#' `y` aesthetic is a factor indicating some stratification in which case multiple timelines will 
+#' be plotted for each level of the factor (e.g., country).
+#'
+#' @param data A data frame containing earthquake data.
+#' @param x The aesthetic mapping for the x-axis, which should be a date.
+#' @param y An optional aesthetic mapping for the y-axis, which can be a factor indicating stratification (default is NULL).
+#' @param color Aesthetic mapping for the color of the points (default is "blue").
+#' @param size Aesthetic mapping for the size of the points (default is 2).
+#' @param alpha Aesthetic mapping for the transparency of the points (default is 0.5).
+#' @param ... Additional arguments passed to ggplot2::geom_point().
+#' 
+#' @return A ggplot object with a timeline of earthquakes.
+#' 
+#' @examples
+#' \dontrun{
+#' # Example data
+#' eq_data <- data.frame(
+#'   DATE = as.Date(c('2000-01-01', '2001-01-01', '2002-01-01')),
+#'   COUNTRY = factor(c('USA', 'JAPAN', 'ITALY')),
+#'   MAGNITUDE = c(6.0, 7.0, 5.5),
+#'   DEATHS = c(100, 200, 50)
+#' )
+#'
+#' # Plot timeline
+#' geom_timeline(data = eq_data, x = DATE, y = COUNTRY, color = DEATHS, size = MAGNITUDE)
+#' }
+#' @export
+
+
+# Define a custom geom_timeline function
+geom_timeline <- function(data, x, y = NULL, color = "blue", size = 2, alpha = 0.5, ...) {
+  ggplot(data, aes(x = {{ x }}, y = {{ y }},
+                   color = {{ color }},
+                   size = {{ size }},
+                   alpha = {{ alpha }})) +
+    geom_point() +
+    scale_size_continuous(name = "Richter scale value") +
+    scale_color_gradient(low = "blue", high = "red", name = "# deaths") +
+    theme_minimal() +
+    theme(axis.title.y = element_blank()) +
+    labs(x = "DATE")
+}
+
+# Usage with the cleaned data
+# Assuming `cleaned_data` has columns `DATE`, `mag`, `DEATHS`, and optionally `LOCATION_NAME`
+p <- geom_timeline(cleaned_data,
+                   x = DATE,
+                   y = LOCATION_NAME,  # Use this if you want separate timelines for each location
+                   color = deaths,
+                   size = mag,
+                   alpha = 0.7)
+
+# Display the plot
+print(p)
+
+
+```
+
+```{r}
+#' Custom Geom for Earthquake Timeline with Annotations
+#'
+#' This function creates a custom geom for ggplot2 called `geom_timeline_label` to add annotations 
+#' to the earthquake data. It adds a vertical line to each data point with a text annotation 
+#' (e.g., the location of the earthquake) attached to each line. There is an option to subset to 
+#' `n_max` number of earthquakes, where the `n_max` largest (by magnitude) earthquakes are taken.
+#' Aesthetics are `x`, which is the date of the earthquake, and `label`, which takes the column 
+#' name from which annotations will be obtained.
+#'
+#' @param data A data frame containing earthquake data.
+#' @param x The aesthetic mapping for the x-axis, which should be a date.
+#' @param label The aesthetic mapping for the text annotations.
+#' @param n_max The maximum number of earthquakes to annotate, based on the largest magnitudes (default is 10).
+#' @param ... Additional arguments passed to ggplot2::geom_point().
+#' 
+#' @return A ggplot object with a timeline of earthquakes and annotations.
+#' 
+#' @examples
+#' \dontrun{
+#' # Example data
+#' eq_data <- data.frame(
+#'   DATE = as.Date(c('2000-01-01', '2001-01-01', '2002-01-01')),
+#'   LOCATION_NAME = c('Los Angeles', 'Tokyo', 'Rome'),
+#'   MAGNITUDE = c(6.0, 7.0, 5.5),
+#'   DEATHS = c(100, 200, 50)
+#' )
+#'
+#' # Plot timeline with annotations
+#' geom_timeline_label(data = eq_data, x = DATE, label = LOCATION_NAME, n_max = 2)
+#' }
+#' @export
+
+
+
+# Define a custom geom_timeline_label function
+geom_timeline_label <- function(data, x, label, n_max = 10, ...) {
+  # Filter the top n_max earthquakes by magnitude
+  top_earthquakes <- data %>% 
+    arrange(desc(mag)) %>% 
+    head(n_max)
+  
+  ggplot(data, aes(x = {{ x }}, y = 0)) +
+    geom_point(aes(size = mag, color = deaths), alpha = 0.6) +
+    geom_segment(data = top_earthquakes,
+                 aes(x = {{ x }}, xend = {{ x }},
+                     y = 0, yend = 0.5),
+                 linetype = "dashed") +
+    geom_text(data = top_earthquakes,
+              aes(x = {{ x }},
+                  y = 0.5,
+                  label = {{ label }}),
+              angle = 45, hjust = 1) +
+    scale_size_continuous(name = "Richter scale value") +
+    scale_color_gradient(low = "blue", high = "red", name = "# deaths") +
+    theme_minimal() +
+    theme(axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+    labs(x = "DATE")
+}
+
+# Usage with the cleaned data
+# Assuming `cleaned_data` has columns `DATE`, `mag`, `DEATHS`, and `LOCATION_NAME`
+p <- geom_timeline_label(cleaned_data,
+                         x = DATE,
+                         label = LOCATION_NAME,
+                         n_max = 5)
+
+# Display the plot
+print(p)
+
+
+
+```
+
+
+```{r}
+#' Map Earthquake Epicenters with Annotations
+#'
+#' This function creates a map of earthquake epicenters using the `leaflet` package. Each earthquake 
+#' is shown with a circle, and the radius of the circle is proportional to the earthquake's magnitude. 
+#' The function also annotates each point with a pop-up window containing annotation data stored in 
+#' a column of the data frame. The user can choose which column is used for the annotation through 
+#' the `annot_col` argument.
+#'
+#' @param data A data frame containing filtered earthquake data with columns `LATITUDE`, `LONGITUDE`, `mag`, and the specified annotation column.
+#' @param annot_col A string specifying the column name to be used for annotations in the pop-up windows.
+#' 
+#' @return A `leaflet` map object visualizing the earthquake epicenters.
+#' 
+#' @examples
+#' \dontrun{
+#' # Example data
+#' eq_data <- data.frame(
+#'   LATITUDE = c(34.05, 35.68, 41.90),
+#'   LONGITUDE = c(-118.24, 139.76, 12.49),
+#'   mag = c(6.0, 7.0, 5.5),
+#'   LOCATION_NAME = c('Los Angeles', 'Tokyo', 'Rome')
+#' )
+#'
+#' # Create a map with annotations
+#' eq_map(data = eq_data, annot_col = "LOCATION_NAME")
+#' }
+#' @export
+
+
+
+
+# Define the eq_map function
+eq_map <- function(data, annot_col) {
+  # Check if the required columns are in the data frame
+  required_cols <- c("LATITUDE", "LONGITUDE", "mag", annot_col)
+  if (!all(required_cols %in% colnames(data))) {
+    stop("Data must contain LATITUDE, LONGITUDE, mag, and the specified annotation column.")
+  }
+  
+  # Create the map
+  leaflet(data) %>%
+    addTiles() %>%
+    addCircles(lng = ~LONGITUDE, lat = ~LATITUDE,
+               radius = ~mag * 10000, # Scale the radius for visibility
+               popup = as.formula(paste0("~", annot_col)),
+               color = "blue",
+               fillOpacity = 0.5) %>%
+    setView(lng = mean(data$LONGITUDE, na.rm = TRUE),
+            lat = mean(data$LATITUDE, na.rm = TRUE),
+            zoom = 2)
+}
+
+```
+
+```{r}
+# Example usage with a hypothetical data frame 'earthquake_data'
+eq_map(data = cleaned_data, annot_col = "LOCATION_NAME")
+```
+
+```{r}
+#' Create HTML Labels for Earthquake Annotations
+#'
+#' This function creates an HTML label for each earthquake in the dataset. The label includes 
+#' the cleaned location (as cleaned by the `eq_location_clean` function), the magnitude (mag), 
+#' and the total number of deaths (deaths), with boldface labels for each ("Location", "Magnitude", 
+#' and "Total deaths"). If an earthquake is missing values for any of these, both the label and 
+#' the value are skipped for that element of the tag.
+#'
+#' @param data A data frame containing earthquake data with columns `LOCATION_NAME`, `mag`, and `deaths`.
+#' 
+#' @return A character vector of HTML labels for each earthquake.
+#' 
+#' @examples
+#' \dontrun{
+#' # Example data
+#' eq_data <- data.frame(
+#'   LOCATION_NAME = c('Los Angeles', 'Tokyo', 'Rome'),
+#'   mag = c(6.0, 7.0, 5.5),
+#'   deaths = c(100, 200, NA)
+#' )
+#'
+#' # Create HTML labels
+#' labels <- eq_create_label(eq_data)
+#' print(labels)
+#' }
+#' @export
+
+
+
+# Define the eq_create_label function
+eq_create_label <- function(data) {
+  data %>%
+    rowwise() %>%
+    mutate(
+      label = paste0(
+        if (!is.na(LOCATION_NAME)) paste0("<b>Location:</b> ", eq_location_clean(LOCATION_NAME), "<br>") else "",
+        if (!is.na(mag)) paste0("<b>Magnitude:</b> ", mag, "<br>") else "",
+        if (!is.na(deaths)) paste0("<b>Total deaths:</b> ", deaths) else ""
+      )
+    ) %>%
+    pull(label)
+}
+
+
+
+```
+
+
+```{r}
+# Example usage with a hypothetical data frame 'earthquake_data'
+labels <- eq_create_label(cleaned_data)
+
+# Using these labels in the eq_map function
+# eq_map(data = cleaned_data, annot_col = labels)
+```
+

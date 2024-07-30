@@ -1,0 +1,206 @@
+---
+title: "MSDR Capstone R Notebook"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(leaflet)
+library(htmltools)
+library(roxygen2)
+```
+
+```{r}
+# Load the dataset
+noaa_data <- read.csv("noaa.csv")
+```
+
+
+```{r}
+# Check data types and missing values
+str(noaa_data)
+summary(noaa_data)
+colnames(noaa_data)
+```
+
+
+```{r}
+# Define eq_clean_data function
+eq_clean_data <- function(data) {
+  data <- data %>%
+    # Convert the time column to Date class by extracting the date part
+    mutate(DATE = as.Date(time, format = "%Y-%m-%d"),
+           LATITUDE = as.numeric(latitude),
+           LONGITUDE = as.numeric(longitude),
+           deaths = as.integer(deaths),  # Convert deaths to integer
+           LOCATION_NAME = eq_location_clean(locationsource)) %>%
+    # Optionally drop the original columns if they are no longer needed
+    select(-time, -locationsource, -latitude, -longitude)
+  
+  return(data)
+}
+```
+
+
+```{r}
+# Define eq_location_clean function
+eq_location_clean <- function(location_name) {
+  cleaned_name <- location_name %>%
+    sub("^[^:]+:\\s*", "", .) %>%
+    tolower() %>%
+    tools::toTitleCase()
+  
+  return(cleaned_name)
+}
+```
+
+```{r}
+# Apply data cleaning
+cleaned_data <- eq_clean_data(noaa_data)
+```
+
+
+```{r}
+# Check the cleaned data
+str(cleaned_data)
+```
+
+```{r}
+
+
+# Define a custom geom_timeline function
+geom_timeline <- function(data, x, y = NULL, color = "blue", size = 2, alpha = 0.5, ...) {
+  ggplot(data, aes(x = {{ x }}, y = {{ y }},
+                   color = {{ color }},
+                   size = {{ size }},
+                   alpha = {{ alpha }})) +
+    geom_point() +
+    scale_size_continuous(name = "Richter scale value") +
+    scale_color_gradient(low = "blue", high = "red", name = "# deaths") +
+    theme_minimal() +
+    theme(axis.title.y = element_blank()) +
+    labs(x = "DATE")
+}
+
+# Usage with the cleaned data
+# Assuming `cleaned_data` has columns `DATE`, `mag`, `DEATHS`, and optionally `LOCATION_NAME`
+p <- geom_timeline(cleaned_data,
+                   x = DATE,
+                   y = LOCATION_NAME,  # Use this if you want separate timelines for each location
+                   color = deaths,
+                   size = mag,
+                   alpha = 0.7)
+
+# Display the plot
+print(p)
+
+
+```
+
+```{r}
+# Define a custom geom_timeline_label function
+geom_timeline_label <- function(data, x, label, n_max = 10, ...) {
+  # Filter the top n_max earthquakes by magnitude
+  top_earthquakes <- data %>% 
+    arrange(desc(mag)) %>% 
+    head(n_max)
+  
+  ggplot(data, aes(x = {{ x }}, y = 0)) +
+    geom_point(aes(size = mag, color = deaths), alpha = 0.6) +
+    geom_segment(data = top_earthquakes,
+                 aes(x = {{ x }}, xend = {{ x }},
+                     y = 0, yend = 0.5),
+                 linetype = "dashed") +
+    geom_text(data = top_earthquakes,
+              aes(x = {{ x }},
+                  y = 0.5,
+                  label = {{ label }}),
+              angle = 45, hjust = 1) +
+    scale_size_continuous(name = "Richter scale value") +
+    scale_color_gradient(low = "blue", high = "red", name = "# deaths") +
+    theme_minimal() +
+    theme(axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+    labs(x = "DATE")
+}
+
+# Usage with the cleaned data
+# Assuming `cleaned_data` has columns `DATE`, `mag`, `DEATHS`, and `LOCATION_NAME`
+p <- geom_timeline_label(cleaned_data,
+                         x = DATE,
+                         label = LOCATION_NAME,
+                         n_max = 5)
+
+# Display the plot
+print(p)
+
+
+
+```
+
+
+```{r}
+# Define the eq_map function
+eq_map <- function(data, annot_col) {
+  # Check if the required columns are in the data frame
+  required_cols <- c("LATITUDE", "LONGITUDE", "mag", annot_col)
+  if (!all(required_cols %in% colnames(data))) {
+    stop("Data must contain LATITUDE, LONGITUDE, mag, and the specified annotation column.")
+  }
+  
+  # Create the map
+  leaflet(data) %>%
+    addTiles() %>%
+    addCircles(lng = ~LONGITUDE, lat = ~LATITUDE,
+               radius = ~mag * 10000, # Scale the radius for visibility
+               popup = as.formula(paste0("~", annot_col)),
+               color = "blue",
+               fillOpacity = 0.5) %>%
+    setView(lng = mean(data$LONGITUDE, na.rm = TRUE),
+            lat = mean(data$LATITUDE, na.rm = TRUE),
+            zoom = 2)
+}
+
+```
+
+```{r}
+# Example usage with a hypothetical data frame 'earthquake_data'
+eq_map(data = cleaned_data, annot_col = "LOCATION_NAME")
+```
+
+```{r}
+
+# Define the eq_create_label function
+eq_create_label <- function(data) {
+  data %>%
+    rowwise() %>%
+    mutate(
+      label = paste0(
+        if (!is.na(LOCATION_NAME)) paste0("<b>Location:</b> ", eq_location_clean(LOCATION_NAME), "<br>") else "",
+        if (!is.na(mag)) paste0("<b>Magnitude:</b> ", mag, "<br>") else "",
+        if (!is.na(deaths)) paste0("<b>Total deaths:</b> ", deaths) else ""
+      )
+    ) %>%
+    pull(label)
+}
+
+
+
+```
+
+
+```{r}
+# Example usage with a hypothetical data frame 'earthquake_data'
+labels <- eq_create_label(cleaned_data)
+
+# Using these labels in the eq_map function
+# eq_map(data = cleaned_data, annot_col = labels)
+```
+
